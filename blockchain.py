@@ -64,3 +64,31 @@ class Blokchain(object):
   def last_block(self):
     # チェーンの最後のブロックをリターンする
     return self.chain[-1]
+
+  """
+  シンプルなProof of Workのアルゴリズム
+  - hash(pp')の最初の4つが0となるようなp'を探す。
+  - p は1つ前のブロックのプルーフ、 p'は新しいブロックのプルーフ
+  :param last_proof: <int>
+  :return: <int>
+  """
+  def proof_of_work(self, last_proof):
+    proof = 0
+    while self.valid_proof(last_proof, proof) is False:
+      proof += 1
+    
+    return proof
+
+  """
+  プルーフが正しいかを確認する: hash(last_proof, proof)の最初の4つが0となっているか？
+  :param last_proof: <int> 前のプルーフ
+  :param proof: <int> 現在のプルーフ
+  :return: <bool> 正しければ true 、そうでなれけば false
+  """
+  @staticmethod
+  def valid_proof(last_proof, proof):
+    guess = f'{last_proof}{proof}'.encode()
+    guess_hash = hashlib.sha256(guess).hexdigest()
+
+    return guess_hash[:4] == "0000"
+
