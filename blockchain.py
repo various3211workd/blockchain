@@ -2,7 +2,11 @@
 
 import hashlib
 import json
+from textwrap import dedent
 from time import time
+from uuid import uuid4
+
+from flask import Flask, jsonify, request
 
 class Blokchain(object):
   def __init__(self):
@@ -40,7 +44,7 @@ class Blokchain(object):
   :param amount: <int> 量
   :return: <int> このトランザクションを含むブロックのアドレス
   """
-  def new_transcation(self, sender, recipient, amount):
+  def new_transaction(self, sender, recipient, amount):
     self.current_transactions.append({
       'sender': sender,
       'recipient': recipient,
@@ -92,3 +96,50 @@ class Blokchain(object):
 
     return guess_hash[:4] == "0000"
 
+# ノードを作る
+app = Flask(__name__)
+
+# このノードのグローバルにユニークなアドレスを作る
+node_identifire = str(uuid4()).replace('-', '')
+
+# ブロックチェーンクラスをインスタンス化する
+blockchain = Blokchain()
+
+# メソッドはPOSTで/transactions/newエンドポイントを作る。メソッドはPOSTなのでデータを送信する
+@app.route('/transactions/new', methods=['POST'])
+def new_transcations():
+  return '新しいトランザクションを追加する'
+
+# メソッドはGETで/mineエンドポイントを作る
+@app.route('mine', methods=['GET'])
+def mine():
+  return '新しいブロックを採掘します'
+
+# メソッドはGETで、フルのブロックチェーンをリターンする/chainエンドポイントを作る
+@app.route('/chain', methods=['GET'])
+def full_chain():
+  response = {
+    'chain': blockchain.chain,
+    'length': len(blockchain.chain),
+  }
+  return jsonify(response), 200
+
+# port5000でサーバーを起動する
+if __name__ == '__main__':
+  app.run(host='0.0.0.0', port=5000)
+
+# メソッドはPOSTで/transactions/newエンドポイントを作る。メソッドはPOSTなのでデータを送信する
+@app.route('/transactions/new', methods=['POST'])
+def new_transaction():
+  values = request.get_json()
+
+  # POSTされたデータに必要なデータがあるかを確認
+  required = ['sender', 'recipient', 'amount']
+  if not all(k in values for k in required):
+    return 'Missing values', 400
+
+  # 新しいトランザクションを作る
+  index = blockchain.new_transaction(values['sender'], values['recipient'], values['amount'])
+
+  response = {'message': f'トランザクションはブロック {index} に追加されました'}
+  return jsonify(response), 201
