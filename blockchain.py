@@ -2,16 +2,19 @@
 
 import hashlib
 import json
+import requests
 from textwrap import dedent
 from time import time
 from uuid import uuid4
+from urllib.parse import urlparse
 
 from flask import Flask, jsonify, request
 
-class Blokchain(object):
+class Blockchain(object):
   def __init__(self):
     self.chain = []
     self.current_transactions = []
+    self.nodes = set()
 
     # ジェネシスブロックを作る
     self.new_block(previous_hash=1, proof=100)
@@ -96,6 +99,76 @@ class Blokchain(object):
 
     return guess_hash[:4] == "0000"
 
+  """
+  ノードリストに新しいノードを加える
+  :param address: <str> ノードのアドレス　例: 'http://192.168.0.5:5000'
+  :return: None
+  """
+  def register_node(self, address):
+    parsed_url = urlparse(address)
+    self.nodes.add(parsed_url.netloc)
+
+  """
+  ブロックチェーンが正しいかを確認する
+  :param chain: <list> ブロックチェーン
+  :return: <bool> True であれば正しく、False であればそうではない
+  """
+  def varid_chain(self, chain):
+    last_block = chain[0]
+    current_index = 1
+
+    while current_index < len(chain):
+      block = chain[current_index]
+      print(f'{last_block}')
+      print(f'{block}')
+      print('\n------------------\n')
+      
+      # ブロックのハッシュが正しいかを確認
+      if block['previous_hash'] != self.hash(last_block):
+        return False
+      
+      # proof of workが正しいかを確認
+      if not self.valid_proof(last_block['proof'], block['proof']):
+        return False
+      
+      last_block = block
+      current_index += 1
+
+    return True
+
+  """
+  これがコンセンサスアルゴリズムだ。ネットワーク上の最も長いチェーンで自らのチェーンを
+  置き換えることでコンフリクトを解消する。
+  :return: <bool> 自らのチェーンが置き換えられると True 、そうでなれけば False
+  """
+  def resolve_conflicts(self):
+    neighbours = self.nodes
+    new_chain = None
+
+    # 自らのチェーンより長いチェーンを探す必要がある
+    max_length = len(self.chain)
+
+    # 他のすべてのノードのチェーンを確認
+    for node in neighbours:
+      response = requests.get(f'http://{node}/chain')
+
+      if response.status_code == 200:
+        length = response.json()['length']
+        chain = response.json()['chain']
+
+        # そのチェーンがより長いか、有効かを確認
+        if length > max_length and self.valid_chain(chain):
+          max_length = length
+          new_chain = chain
+
+    # もし自らのチェーンより長く、かつ有効なチェーンを見つけた場合それで置き換える
+    if new_chain:
+      self.chain = new_chain
+      return True
+
+    return False
+
+
 # ノードを作る
 app = Flask(__name__)
 
@@ -103,15 +176,15 @@ app = Flask(__name__)
 node_identifire = str(uuid4()).replace('-', '')
 
 # ブロックチェーンクラスをインスタンス化する
-blockchain = Blokchain()
+blockchain = Blockchain()
 
 # メソッドはPOSTで/transactions/newエンドポイントを作る。メソッドはPOSTなのでデータを送信する
 @app.route('/transactions/new', methods=['POST'])
-def new_transcations():
-  return '新しいトランザクションを追加する'
+def new_transactions():
+  return '新しいトランザクションを追加します'
 
 # メソッドはGETで/mineエンドポイントを作る
-@app.route('mine', methods=['GET'])
+@app.route('/mine', methods=['GET'])
 def mine():
   return '新しいブロックを採掘します'
 
@@ -143,3 +216,65 @@ def new_transaction():
 
   response = {'message': f'トランザクションはブロック {index} に追加されました'}
   return jsonify(response), 201
+
+# メソッドはGETで/mineエンドポイントを作る
+@app.route('/mine', methods=['GET'])
+def mine():
+  # 次のproofを見つけるためproof of workアルゴリズムを使用する
+  last_block = blockchain.last_block
+  last_proof = last_block['proof']
+  proof = blockchain.proof_of_work(last_proof)
+
+  # proofを見つけたことに対する報酬を得る
+  # 送信者は、採掘者が新しいコインを採掘したことを表すために"0"とする
+  blockchain.new_transaction(
+    sender="0",
+    recipient=node_identifire,
+    amount=1,
+  )
+
+  # チェーンに新しいブロックを加えることで、新しいブロックを採掘する
+  block = blockchain.new_block(proof)
+
+  response = {
+    'message': '新しいブロックを採掘しました',
+    'index': block['index'],
+    'transactions': block['transactions'],
+    'proof': block['proof'],
+    'previous_hash': block['previous_hash'],
+  }
+  return jsonify(response), 200
+
+@app.route('/nodes/register', methos=['POST'])
+def register_node:
+  values = request.get_json()
+
+  nodes = values.get('nodes')
+  if nodes in None:
+    return "[Error] 有効ではないノードのリストです", 400
+
+  for node in nodes:
+    blockchain.register_node(node)
+  
+  response = {
+    'message': '新しいノードが追加されました'
+    'total_nodes': list(blockchain.nodes)
+  }
+  return jsonify(response), 201
+
+@app.route('/nodes/resolve', methos=['GET'])
+def consensus():
+  replaced = blockchain.resolve_conflicts()
+
+  if replaced:
+    response = {
+      'message': 'チェーンが置き換えられました'
+      'new_chain': blockchain.chain
+    }
+  else:
+    response = {
+      'message': 'チェーンが確認されました'
+      'chain': blockchain.chain
+    }
+  
+  return jsonify(response), 200
